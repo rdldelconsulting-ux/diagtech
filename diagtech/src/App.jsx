@@ -294,22 +294,27 @@ export default function App() {
   };
 
   const handleSendEmail = async (diag) => {
-    showToast("Génération et envoi du PDF...");
-    const { blob, diag: d } = await generatePDF(diag);
-    const fileName = `rapport-${d.id}.pdf`;
+    try {
+      showToast("Génération du PDF...");
+      const { blob, diag: d } = await generatePDF(diag);
+      const fileName = `rapport-${Date.now()}.pdf`;
 
-    // Upload sur Supabase Storage
-    const { error } = await supabase.storage.from("rapports").upload(fileName, blob, { contentType: "application/pdf" });
-    if (error) { showToast("Erreur upload : " + error.message, "error"); return; }
+      // Upload sur Supabase Storage
+      showToast("Upload du PDF...");
+      const { error } = await supabase.storage.from("rapports").upload(fileName, blob, { contentType: "application/pdf", upsert: true });
+      if (error) { showToast("Erreur upload : " + error.message, "error"); return; }
 
-    // Récupérer l'URL publique
-    const { data: urlData } = supabase.storage.from("rapports").getPublicUrl(fileName);
-    const pdfUrl = urlData.publicUrl;
+      // Récupérer l'URL publique
+      const { data: urlData } = supabase.storage.from("rapports").getPublicUrl(fileName);
+      const pdfUrl = urlData.publicUrl;
 
-    const subject = encodeURIComponent(`Rapport Diagnostic – ${d.client} – ${d.date}`);
-    const body = encodeURIComponent(`Bonjour,\n\nVeuillez trouver le rapport de diagnostic technique via le lien ci-dessous :\n\n${pdfUrl}\n\nClient : ${d.client}\nMachine : ${d.machine}\nÉtat : ${d.etatGeneral}\nStatut : ${d.statut}\nAnomalies : ${d.anomalies || "Aucune"}\n\nCordialement,\nL'équipe technique DiagTech`);
-    window.location.href = `mailto:${d.email}?subject=${subject}&body=${body}`;
-    showToast("Email préparé avec le lien PDF !");
+      const subject = encodeURIComponent(`Rapport Diagnostic - ${d.client} - ${d.date}`);
+      const body = encodeURIComponent(`Bonjour,\n\nVeuillez trouver le rapport de diagnostic technique via le lien ci-dessous :\n\n${pdfUrl}\n\nClient : ${d.client}\nMachine : ${d.machine}\nEtat : ${d.etatGeneral}\nStatut : ${d.statut}\nAnomalies : ${d.anomalies || "Aucune"}\n\nCordialement,\nL equipe technique DiagTech`);
+      window.location.href = `mailto:${d.email}?subject=${subject}&body=${body}`;
+      showToast("Email prepare avec le lien PDF !");
+    } catch (err) {
+      showToast("Erreur : " + err.message, "error");
+    }
   };
 
   const navBtn = (icon, label, target) => (
