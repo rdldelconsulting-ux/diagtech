@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { supabase } from "./supabase";
+import html2pdf from "html2pdf.js";
 
 function generateId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 function nowStr() { return new Date().toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
@@ -270,21 +271,45 @@ export default function App() {
     showToast("Diagnostic sauvegardé avec succès !");
   };
 
-  const handleExportPDF = (diag) => {
-    const html = generatePDFContent(diag || { ...form, id: generateId(), date: nowStr() });
-    const blob = new Blob([html], { type: "text/html" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `rapport-diagnostic-${Date.now()}.html`;
-    a.click();
-    showToast("Rapport exporté !");
+  const generatePDF = async (diag) => {
+    const d = diag || { ...form, id: generateId(), date: nowStr() };
+    const html = generatePDFContent(d);
+    const container = document.createElement("div");
+    container.innerHTML = html;
+    container.style.width = "800px";
+    document.body.appendChild(container);
+    const pdf = await html2pdf().set({ margin: 0, filename: `rapport-${d.id}.pdf`, image: { type: "jpeg", quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: "mm", format: "a4", orientation: "portrait" } }).from(container).outputPdf("blob");
+    document.body.removeChild(container);
+    return { blob: pdf, diag: d };
   };
 
-  const handleSendEmail = (diag) => {
-    const d = diag || { ...form, date: nowStr() };
+  const handleExportPDF = async (diag) => {
+    showToast("Génération du PDF...");
+    const { blob, diag: d } = await generatePDF(diag);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `rapport-diagnostic-${d.id}.pdf`;
+    a.click();
+    showToast("PDF exporté !");
+  };
+
+  const handleSendEmail = async (diag) => {
+    showToast("Génération et envoi du PDF...");
+    const { blob, diag: d } = await generatePDF(diag);
+    const fileName = `rapport-${d.id}.pdf`;
+
+    // Upload sur Supabase Storage
+    const { error } = await supabase.storage.from("rapports").upload(fileName, blob, { contentType: "application/pdf" });
+    if (error) { showToast("Erreur upload : " + error.message, "error"); return; }
+
+    // Récupérer l'URL publique
+    const { data: urlData } = supabase.storage.from("rapports").getPublicUrl(fileName);
+    const pdfUrl = urlData.publicUrl;
+
     const subject = encodeURIComponent(`Rapport Diagnostic – ${d.client} – ${d.date}`);
-    const body = encodeURIComponent(`Bonjour,\n\nVeuillez trouver ci-joint le rapport de diagnostic technique.\n\nClient : ${d.client}\nMachine : ${d.machine}\nÉtat : ${d.etatGeneral}\nStatut : ${d.statut}\nAnomalies : ${d.anomalies || "Aucune"}\n\nCordialement,\nL'équipe technique DiagTech`);
+    const body = encodeURIComponent(`Bonjour,\n\nVeuillez trouver le rapport de diagnostic technique via le lien ci-dessous :\n\n${pdfUrl}\n\nClient : ${d.client}\nMachine : ${d.machine}\nÉtat : ${d.etatGeneral}\nStatut : ${d.statut}\nAnomalies : ${d.anomalies || "Aucune"}\n\nCordialement,\nL'équipe technique DiagTech`);
     window.location.href = `mailto:${d.email}?subject=${subject}&body=${body}`;
+    showToast("Email préparé avec le lien PDF !");
   };
 
   const navBtn = (icon, label, target) => (
