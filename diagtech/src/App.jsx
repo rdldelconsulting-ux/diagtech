@@ -5,9 +5,9 @@ function loadFromStorage(key, fallback) {
   catch { return fallback; }
 }
 
-const ZONES = ["Zone A – Fonderie", "Zone B – Assemblage", "Zone C – Peinture", "Zone D – Logistique", "Zone E – Contrôle Qualité"];
-const LIGNES = { "Zone A – Fonderie": ["Ligne 1 – Coulée", "Ligne 2 – Forgeage", "Ligne 3 – Traitement thermique"], "Zone B – Assemblage": ["Ligne 4 – Pré-montage", "Ligne 5 – Montage principal", "Ligne 6 – Finition"], "Zone C – Peinture": ["Ligne 7 – Cataphorèse", "Ligne 8 – Apprêt", "Ligne 9 – Laque finale"], "Zone D – Logistique": ["Ligne 10 – Réception", "Ligne 11 – Expédition"], "Zone E – Contrôle Qualité": ["Ligne 12 – Tests fonctionnels", "Ligne 13 – Métrologie"] };
-const MACHINES = { "Ligne 1 – Coulée": ["Four à induction #1", "Four à induction #2", "Robot coulée"], "Ligne 2 – Forgeage": ["Presse hydraulique 500T", "Marteau-pilon", "Découpeuse laser"], "Ligne 3 – Traitement thermique": ["Four de recuit", "Bain trempe"], "Ligne 4 – Pré-montage": ["Poste vissage automatique", "Convoyeur PMA-01"], "Ligne 5 – Montage principal": ["Bras robot KUKA KR200", "Table tournante", "Perceuse CNC"], "Ligne 6 – Finition": ["Polisseuse automatique", "Système de contrôle vision"], "Ligne 7 – Cataphorèse": ["Cuve cataphorèse", "Redresseur 2000A"], "Ligne 8 – Apprêt": ["Cabine projection apprêt", "Four séchage"], "Ligne 9 – Laque finale": ["Robot peinture ABB", "Four polymérisation"], "Ligne 10 – Réception": ["Pont roulant 10T", "Transpalette électrique"], "Ligne 11 – Expédition": ["Cercleuse automatique", "Palettiseur"], "Ligne 12 – Tests fonctionnels": ["Banc de test #1", "Analyseur vibration"], "Ligne 13 – Métrologie": ["CMM Zeiss Contura", "Rugosimètre"] };
+const DEFAULT_ZONES = [];
+const DEFAULT_LIGNES = {};
+const DEFAULT_MACHINES = {};
 
 function generateId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 function nowStr() { return new Date().toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
@@ -149,9 +149,18 @@ export default function App() {
   const [form, setForm] = useState(INITIAL_FORM);
   const [clients, setClients] = useState(() => loadFromStorage("diagtech_clients", []));
   const [history, setHistory] = useState(() => loadFromStorage("diagtech_history", []));
+  const [zones, setZones] = useState(() => loadFromStorage("diagtech_zones", DEFAULT_ZONES));
+  const [lignes, setLignes] = useState(() => loadFromStorage("diagtech_lignes", DEFAULT_LIGNES));
+  const [machines, setMachines] = useState(() => loadFromStorage("diagtech_machines", DEFAULT_MACHINES));
+  const [newZone, setNewZone] = useState("");
+  const [newLigne, setNewLigne] = useState("");
+  const [newMachine, setNewMachine] = useState("");
 
   useEffect(() => { localStorage.setItem("diagtech_clients", JSON.stringify(clients)); }, [clients]);
   useEffect(() => { localStorage.setItem("diagtech_history", JSON.stringify(history)); }, [history]);
+  useEffect(() => { localStorage.setItem("diagtech_zones", JSON.stringify(zones)); }, [zones]);
+  useEffect(() => { localStorage.setItem("diagtech_lignes", JSON.stringify(lignes)); }, [lignes]);
+  useEffect(() => { localStorage.setItem("diagtech_machines", JSON.stringify(machines)); }, [machines]);
   const [previewDiag, setPreviewDiag] = useState(null);
   const [saved, setSaved] = useState(false);
   const [toast, setToast] = useState(null);
@@ -171,8 +180,24 @@ export default function App() {
     else setForm(f => ({ ...f, client: name, address: "", phone: "", email: "" }));
   };
 
-  const handleZoneChange = (z) => setForm(f => ({ ...f, zone: z, ligne: "", machine: "" }));
-  const handleLigneChange = (l) => setForm(f => ({ ...f, ligne: l, machine: "" }));
+  const handleZoneChange = (z) => { setForm(f => ({ ...f, zone: z, ligne: "", machine: "" })); setNewLigne(""); setNewMachine(""); };
+  const handleLigneChange = (l) => { setForm(f => ({ ...f, ligne: l, machine: "" })); setNewMachine(""); };
+
+  const addZone = () => {
+    const z = newZone.trim();
+    if (z && !zones.includes(z)) { setZones(prev => [...prev, z]); setForm(f => ({ ...f, zone: z, ligne: "", machine: "" })); }
+    setNewZone("");
+  };
+  const addLigne = () => {
+    const l = newLigne.trim();
+    if (l && form.zone && !(lignes[form.zone] || []).includes(l)) { setLignes(prev => ({ ...prev, [form.zone]: [...(prev[form.zone] || []), l] })); setForm(f => ({ ...f, ligne: l, machine: "" })); }
+    setNewLigne("");
+  };
+  const addMachine = () => {
+    const m = newMachine.trim();
+    if (m && form.ligne && !(machines[form.ligne] || []).includes(m)) { setMachines(prev => ({ ...prev, [form.ligne]: [...(prev[form.ligne] || []), m] })); setForm(f => ({ ...f, machine: m })); }
+    setNewMachine("");
+  };
 
   const handleImage = (e) => {
     const files = Array.from(e.target.files || []);
@@ -272,13 +297,29 @@ export default function App() {
     if (step === 1) return (
       <div>
         <Field label="Zone" required>
-          <Select value={form.zone} onChange={e => handleZoneChange(e.target.value)} options={ZONES} placeholder="Choisir une zone" />
+          <Select value={form.zone} onChange={e => handleZoneChange(e.target.value)} options={zones} placeholder={zones.length ? "Choisir une zone" : "Ajoutez une zone ci-dessous"} />
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <Input value={newZone} onChange={e => setNewZone(e.target.value)} placeholder="Nouvelle zone…" />
+            <button onClick={addZone} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: "#f59e0b", color: "#0f172a", fontWeight: 800, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>+</button>
+          </div>
         </Field>
         <Field label="Ligne de production" required>
-          <Select value={form.ligne} onChange={e => handleLigneChange(e.target.value)} options={form.zone ? (LIGNES[form.zone] || []) : []} placeholder={form.zone ? "Choisir une ligne" : "Sélectionnez d'abord une zone"} />
+          <Select value={form.ligne} onChange={e => handleLigneChange(e.target.value)} options={form.zone ? (lignes[form.zone] || []) : []} placeholder={form.zone ? (lignes[form.zone]?.length ? "Choisir une ligne" : "Ajoutez une ligne ci-dessous") : "Sélectionnez d'abord une zone"} />
+          {form.zone && (
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <Input value={newLigne} onChange={e => setNewLigne(e.target.value)} placeholder="Nouvelle ligne…" />
+              <button onClick={addLigne} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: "#f59e0b", color: "#0f172a", fontWeight: 800, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>+</button>
+            </div>
+          )}
         </Field>
         <Field label="Machine" required>
-          <Select value={form.machine} onChange={e => set("machine", e.target.value)} options={form.ligne ? (MACHINES[form.ligne] || []) : []} placeholder={form.ligne ? "Choisir une machine" : "Sélectionnez d'abord une ligne"} />
+          <Select value={form.machine} onChange={e => set("machine", e.target.value)} options={form.ligne ? (machines[form.ligne] || []) : []} placeholder={form.ligne ? (machines[form.ligne]?.length ? "Choisir une machine" : "Ajoutez une machine ci-dessous") : "Sélectionnez d'abord une ligne"} />
+          {form.ligne && (
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <Input value={newMachine} onChange={e => setNewMachine(e.target.value)} placeholder="Nouvelle machine…" />
+              <button onClick={addMachine} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: "#f59e0b", color: "#0f172a", fontWeight: 800, fontSize: 18, cursor: "pointer", lineHeight: 1 }}>+</button>
+            </div>
+          )}
         </Field>
         {form.zone && form.ligne && form.machine && (
           <div style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 10, padding: 14, marginTop: 8 }}>
