@@ -173,7 +173,7 @@ export default function App() {
       }
 
       const { data: d } = await supabase.from("diagnostics").select("*").order("created_at", { ascending: false });
-      if (d) setHistory(d.map(r => ({ id: r.id, date: r.date, client: r.client, address: r.address, phone: r.phone, email: r.email, zone: r.zone, ligne: r.ligne, machine: r.machine, etatGeneral: r.etat_general, statut: r.statut, anomalies: r.anomalies, observations: r.observations, images: [] })));
+      if (d) setHistory(d.map(r => ({ id: r.id, date: r.date, client: r.client, address: r.address, phone: r.phone, email: r.email, zone: r.zone, ligne: r.ligne, machine: r.machine, etatGeneral: r.etat_general, statut: r.statut, anomalies: r.anomalies, observations: r.observations, images: r.images || [] })));
     };
     load();
   }, []);
@@ -246,8 +246,23 @@ export default function App() {
 
   const removeImage = (id) => setForm(f => ({ ...f, images: f.images.filter(i => i.id !== id) }));
 
+  const uploadImages = async (diagId, images) => {
+    const uploaded = [];
+    for (const img of images) {
+      const res = await fetch(img.url);
+      const blob = await res.blob();
+      const fileName = `photos/${diagId}/${img.id}.jpg`;
+      const { error } = await supabase.storage.from("rapports").upload(fileName, blob, { contentType: blob.type, upsert: true });
+      if (error) { showToast("Erreur photo : " + error.message, "error"); continue; }
+      const { data } = supabase.storage.from("rapports").getPublicUrl(fileName);
+      uploaded.push({ id: img.id, url: data.publicUrl, name: img.name });
+    }
+    return uploaded;
+  };
+
   const handleSave = async () => {
-    const diag = { ...form, id: generateId(), date: nowStr() };
+    const diagId = generateId();
+    const diag = { ...form, id: diagId, date: nowStr() };
 
     // Sauvegarder le client s'il est nouveau
     if (form.client && !clients.find(c => c.name === form.client)) {
@@ -257,15 +272,24 @@ export default function App() {
       setClients(prev => [...prev, newClient]);
     }
 
+    // Upload des photos
+    let savedImages = [];
+    if (form.images.length > 0) {
+      showToast("Upload des photos...");
+      savedImages = await uploadImages(diagId, form.images);
+    }
+
     // Sauvegarder le diagnostic
     const { error } = await supabase.from("diagnostics").insert({
       id: diag.id, date: diag.date, client: diag.client, address: diag.address,
       phone: diag.phone, email: diag.email, zone: diag.zone, ligne: diag.ligne,
       machine: diag.machine, etat_general: diag.etatGeneral, statut: diag.statut,
       anomalies: diag.anomalies, observations: diag.observations,
+      images: savedImages,
     });
     if (error) { showToast("Erreur diagnostic : " + error.message, "error"); return; }
 
+    diag.images = savedImages;
     setHistory(h => [diag, ...h]);
     setSaved(true);
     showToast("Diagnostic sauvegardé avec succès !");
