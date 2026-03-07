@@ -106,12 +106,13 @@ const StepBar = ({ current }) => (
   </div>
 );
 
-const HistoryCard = ({ diag, onView, onDelete }) => (
+const HistoryCard = ({ diag, onView, onEdit, onDelete }) => (
   <div style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 12, padding: 16, marginBottom: 12 }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
       <div>
         <div style={{ fontWeight: 700, color: "#e2e8f0", fontSize: 14 }}>{diag.client || "Client inconnu"}</div>
         <div style={{ color: "#64748b", fontSize: 11, marginTop: 2 }}>{diag.date}</div>
+        {diag.modifiedAt && <div style={{ color: "#f59e0b", fontSize: 10, marginTop: 2, fontStyle: "italic" }}>Rapport modifie le {diag.modifiedAt}</div>}
       </div>
       <div style={{ display: "flex", gap: 6 }}>
         {diag.etatGeneral && <Badge text={diag.etatGeneral} color={diag.etatGeneral} />}
@@ -123,6 +124,9 @@ const HistoryCard = ({ diag, onView, onDelete }) => (
     <div style={{ display: "flex", gap: 8 }}>
       <button onClick={() => onView(diag)} style={{ flex: 1, padding: "8px", borderRadius: 8, border: "1px solid #334155", background: "transparent", color: "#94a3b8", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
         <Icon d={ICONS.eye} size={14} /> Voir
+      </button>
+      <button onClick={() => onEdit(diag)} style={{ flex: 1, padding: "8px", borderRadius: 8, border: "1px solid #3b82f633", background: "#3b82f611", color: "#3b82f6", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+        <Icon d={ICONS.edit} size={14} /> Modifier
       </button>
       <button onClick={() => onDelete(diag.id)} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #ef444433", background: "#ef444411", color: "#ef4444", fontSize: 12, cursor: "pointer" }}>
         <Icon d={ICONS.trash} size={14} />
@@ -140,6 +144,7 @@ export default function App() {
   const [view, setView] = useState("form");
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(INITIAL_FORM);
+  const [editingId, setEditingId] = useState(null);
   const [clients, setClients] = useState([]);
   const [history, setHistory] = useState([]);
   const [zones, setZones] = useState([]);
@@ -173,7 +178,7 @@ export default function App() {
       }
 
       const { data: d } = await supabase.from("diagnostics").select("*").order("created_at", { ascending: false });
-      if (d) setHistory(d.map(r => ({ id: r.id, date: r.date, client: r.client, address: r.address, phone: r.phone, email: r.email, zone: r.zone, ligne: r.ligne, machine: r.machine, etatGeneral: r.etat_general, statut: r.statut, anomalies: r.anomalies, observations: r.observations, images: r.images || [] })));
+      if (d) setHistory(d.map(r => ({ id: r.id, date: r.date, client: r.client, address: r.address, phone: r.phone, email: r.email, zone: r.zone, ligne: r.ligne, machine: r.machine, etatGeneral: r.etat_general, statut: r.statut, anomalies: r.anomalies, observations: r.observations, images: r.images || [], modifiedAt: r.modified_at || null })));
     };
     load();
   }, []);
@@ -292,7 +297,44 @@ export default function App() {
     diag.images = savedImages;
     setHistory(h => [diag, ...h]);
     setSaved(true);
+    setEditingId(null);
     showToast("Diagnostic sauvegardé avec succès !");
+  };
+
+  const handleUpdate = async () => {
+    // Upload des nouvelles photos (celles en base64, pas déjà uploadées)
+    const newImages = form.images.filter(img => img.url.startsWith("data:"));
+    const existingImages = form.images.filter(img => !img.url.startsWith("data:"));
+    let uploadedNew = [];
+    if (newImages.length > 0) {
+      showToast("Upload des nouvelles photos...");
+      uploadedNew = await uploadImages(editingId, newImages);
+    }
+    const allImages = [...existingImages, ...uploadedNew];
+    const modifiedAt = nowStr();
+
+    const { error } = await supabase.from("diagnostics").update({
+      client: form.client, address: form.address, phone: form.phone, email: form.email,
+      zone: form.zone, ligne: form.ligne, machine: form.machine,
+      etat_general: form.etatGeneral, statut: form.statut,
+      anomalies: form.anomalies, observations: form.observations,
+      images: allImages, modified_at: modifiedAt,
+    }).eq("id", editingId);
+    if (error) { showToast("Erreur modification : " + error.message, "error"); return; }
+
+    setHistory(h => h.map(d => d.id === editingId ? { ...d, ...form, images: allImages, modifiedAt } : d));
+    setSaved(true);
+    setEditingId(null);
+    showToast("Diagnostic modifié avec succès !");
+  };
+
+  const handleEditDiag = (diag) => {
+    setForm({ client: diag.client, address: diag.address, phone: diag.phone, email: diag.email, zone: diag.zone, ligne: diag.ligne, machine: diag.machine, etatGeneral: diag.etatGeneral, statut: diag.statut, anomalies: diag.anomalies, observations: diag.observations, images: diag.images || [] });
+    setEditingId(diag.id);
+    setStep(0);
+    setSaved(false);
+    setPreviewDiag(null);
+    setView("form");
   };
 
   const generatePDF = async (diag) => {
@@ -513,10 +555,10 @@ export default function App() {
         </div>
 
         <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-          <button onClick={handleSave} disabled={saved}
-            style={{ flex: 1, padding: "14px", borderRadius: 10, border: "none", background: saved ? "#1e293b" : "#f59e0b", color: saved ? "#94a3b8" : "#0f172a", fontWeight: 800, fontSize: 14, cursor: saved ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <button onClick={editingId ? handleUpdate : handleSave} disabled={saved}
+            style={{ flex: 1, padding: "14px", borderRadius: 10, border: "none", background: saved ? "#1e293b" : editingId ? "#3b82f6" : "#f59e0b", color: saved ? "#94a3b8" : "#0f172a", fontWeight: 800, fontSize: 14, cursor: saved ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
             <Icon d={saved ? ICONS.check : ICONS.save} size={18} color={saved ? "#94a3b8" : "#0f172a"} />
-            {saved ? "Sauvegardé" : "Sauvegarder"}
+            {saved ? "Sauvegardé" : editingId ? "Modifier" : "Sauvegarder"}
           </button>
           <button onClick={() => handleExportPDF()}
             style={{ flex: 1, padding: "14px", borderRadius: 10, border: "1px solid #334155", background: "#1e293b", color: "#e2e8f0", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
@@ -545,6 +587,7 @@ export default function App() {
             <div style={{ fontWeight: 900, fontSize: 16, color: "#e2e8f0" }}>{d.client}</div>
             <div style={{ fontSize: 11, color: "#64748b" }}>{d.date}</div>
           </div>
+          {d.modifiedAt && <div style={{ background: "#f59e0b22", border: "1px solid #f59e0b44", borderRadius: 8, padding: "6px 12px", marginBottom: 12, fontSize: 11, color: "#f59e0b", fontWeight: 700 }}>Rapport modifie le {d.modifiedAt}</div>}
           {[["Adresse", d.address], ["Téléphone", d.phone], ["Email", d.email]].map(([k, v]) => v ? (
             <div key={k} style={{ fontSize: 12, color: "#94a3b8", marginBottom: 4 }}><span style={{ color: "#475569" }}>{k} : </span>{v}</div>
           ) : null)}
@@ -570,6 +613,11 @@ export default function App() {
             </div>
           </div>
         )}
+        <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+          <button onClick={() => handleEditDiag(d)} style={{ flex: 1, padding: "13px", borderRadius: 10, border: "none", background: "#1e3a5f", color: "#93c5fd", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <Icon d={ICONS.edit} size={16} color="#93c5fd" /> Modifier
+          </button>
+        </div>
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={() => handleExportPDF(d)} style={{ flex: 1, padding: "13px", borderRadius: 10, border: "none", background: "#1e3a5f", color: "#93c5fd", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
             <Icon d={ICONS.pdf} size={16} color="#93c5fd" /> Exporter PDF
@@ -641,6 +689,7 @@ export default function App() {
               {history.map(d => (
                 <HistoryCard key={d.id} diag={d}
                   onView={(d) => { setPreviewDiag(d); setView("preview"); }}
+                  onEdit={handleEditDiag}
                   onDelete={async (id) => { await supabase.from("diagnostics").delete().eq("id", id); setHistory(h => h.filter(x => x.id !== id)); }} />
               ))}
             </>
@@ -650,7 +699,7 @@ export default function App() {
         </div>
 
         <div style={{ background: "#0f172a", borderTop: "1px solid #1e293b", display: "flex", position: "sticky", bottom: 0 }}>
-          <button onClick={() => { setView("form"); setStep(0); setForm(INITIAL_FORM); setSaved(false); setManualClient(false); setNewZone(""); setNewLigne(""); setNewMachine(""); }}
+          <button onClick={() => { setView("form"); setStep(0); setForm(INITIAL_FORM); setSaved(false); setEditingId(null); setManualClient(false); setNewZone(""); setNewLigne(""); setNewMachine(""); }}
             style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "10px 4px", border: "none", background: "transparent", color: view === "form" ? "#f59e0b" : "#475569", cursor: "pointer", fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>
             <Icon d={ICONS.factory} size={20} color={view === "form" ? "#f59e0b" : "#475569"} />
             Nouveau
