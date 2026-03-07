@@ -200,30 +200,36 @@ export default function App() {
 
   const addZone = async () => {
     const z = newZone.trim();
-    if (z && !zones.includes(z)) {
-      await supabase.from("zones").insert({ name: z });
-      setZones(prev => [...prev, z]);
-      setForm(f => ({ ...f, zone: z, ligne: "", machine: "" }));
-    }
+    if (!z) return;
+    if (zones.includes(z)) { showToast("Cette zone existe déjà", "error"); setNewZone(""); return; }
+    const { error } = await supabase.from("zones").insert({ name: z });
+    if (error) { showToast("Erreur : " + error.message, "error"); return; }
+    setZones(prev => [...prev, z]);
+    setForm(f => ({ ...f, zone: z, ligne: "", machine: "" }));
     setNewZone("");
+    showToast("Zone ajoutée");
   };
   const addLigne = async () => {
     const l = newLigne.trim();
-    if (l && form.zone && !(lignes[form.zone] || []).includes(l)) {
-      await supabase.from("lignes").insert({ name: l, zone_name: form.zone });
-      setLignes(prev => ({ ...prev, [form.zone]: [...(prev[form.zone] || []), l] }));
-      setForm(f => ({ ...f, ligne: l, machine: "" }));
-    }
+    if (!l || !form.zone) return;
+    if ((lignes[form.zone] || []).includes(l)) { showToast("Cette ligne existe déjà", "error"); setNewLigne(""); return; }
+    const { error } = await supabase.from("lignes").insert({ name: l, zone_name: form.zone });
+    if (error) { showToast("Erreur : " + error.message, "error"); return; }
+    setLignes(prev => ({ ...prev, [form.zone]: [...(prev[form.zone] || []), l] }));
+    setForm(f => ({ ...f, ligne: l, machine: "" }));
     setNewLigne("");
+    showToast("Ligne ajoutée");
   };
   const addMachine = async () => {
     const m = newMachine.trim();
-    if (m && form.ligne && !(machines[form.ligne] || []).includes(m)) {
-      await supabase.from("machines").insert({ name: m, ligne_name: form.ligne });
-      setMachines(prev => ({ ...prev, [form.ligne]: [...(prev[form.ligne] || []), m] }));
-      setForm(f => ({ ...f, machine: m }));
-    }
+    if (!m || !form.ligne) return;
+    if ((machines[form.ligne] || []).includes(m)) { showToast("Cette machine existe déjà", "error"); setNewMachine(""); return; }
+    const { error } = await supabase.from("machines").insert({ name: m, ligne_name: form.ligne });
+    if (error) { showToast("Erreur : " + error.message, "error"); return; }
+    setMachines(prev => ({ ...prev, [form.ligne]: [...(prev[form.ligne] || []), m] }));
+    setForm(f => ({ ...f, machine: m }));
     setNewMachine("");
+    showToast("Machine ajoutée");
   };
 
   const handleImage = (e) => {
@@ -241,23 +247,25 @@ export default function App() {
 
   const handleSave = async () => {
     const diag = { ...form, id: generateId(), date: nowStr() };
-    setHistory(h => [diag, ...h]);
 
     // Sauvegarder le client s'il est nouveau
     if (form.client && !clients.find(c => c.name === form.client)) {
       const newClient = { name: form.client, address: form.address, phone: form.phone, email: form.email };
-      await supabase.from("clients").insert(newClient);
+      const { error } = await supabase.from("clients").insert(newClient);
+      if (error) { showToast("Erreur client : " + error.message, "error"); return; }
       setClients(prev => [...prev, newClient]);
     }
 
     // Sauvegarder le diagnostic
-    await supabase.from("diagnostics").insert({
+    const { error } = await supabase.from("diagnostics").insert({
       id: diag.id, date: diag.date, client: diag.client, address: diag.address,
       phone: diag.phone, email: diag.email, zone: diag.zone, ligne: diag.ligne,
       machine: diag.machine, etat_general: diag.etatGeneral, statut: diag.statut,
       anomalies: diag.anomalies, observations: diag.observations,
     });
+    if (error) { showToast("Erreur diagnostic : " + error.message, "error"); return; }
 
+    setHistory(h => [diag, ...h]);
     setSaved(true);
     showToast("Diagnostic sauvegardé avec succès !");
   };
