@@ -542,7 +542,11 @@ export default function App() {
         </div>
 
         <div style={{ background: "#0f172a", borderTop: "1px solid #1e293b", display: "flex", position: "sticky", bottom: 0 }}>
-          {navBtn(ICONS.factory, "Nouveau", "form")}
+          <button onClick={() => { setView("form"); setStep(0); setForm(INITIAL_FORM); setSaved(false); setManualClient(false); setNewZone(""); setNewLigne(""); setNewMachine(""); }}
+            style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "10px 4px", border: "none", background: "transparent", color: view === "form" ? "#f59e0b" : "#475569", cursor: "pointer", fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>
+            <Icon d={ICONS.factory} size={20} color={view === "form" ? "#f59e0b" : "#475569"} />
+            Nouveau
+          </button>
           {navBtn(ICONS.history, "Historique", "history")}
         </div>
 
