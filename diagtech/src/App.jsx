@@ -1,13 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-
-function loadFromStorage(key, fallback) {
-  try { const d = localStorage.getItem(key); return d ? JSON.parse(d) : fallback; }
-  catch { return fallback; }
-}
-
-const DEFAULT_ZONES = [];
-const DEFAULT_LIGNES = {};
-const DEFAULT_MACHINES = {};
+import { supabase } from "./supabase";
 
 function generateId() { return Date.now().toString(36) + Math.random().toString(36).slice(2); }
 function nowStr() { return new Date().toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
@@ -147,20 +139,43 @@ export default function App() {
   const [view, setView] = useState("form");
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(INITIAL_FORM);
-  const [clients, setClients] = useState(() => loadFromStorage("diagtech_clients", []));
-  const [history, setHistory] = useState(() => loadFromStorage("diagtech_history", []));
-  const [zones, setZones] = useState(() => loadFromStorage("diagtech_zones", DEFAULT_ZONES));
-  const [lignes, setLignes] = useState(() => loadFromStorage("diagtech_lignes", DEFAULT_LIGNES));
-  const [machines, setMachines] = useState(() => loadFromStorage("diagtech_machines", DEFAULT_MACHINES));
+  const [clients, setClients] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [zones, setZones] = useState([]);
+  const [lignes, setLignes] = useState({});
+  const [machines, setMachines] = useState({});
   const [newZone, setNewZone] = useState("");
   const [newLigne, setNewLigne] = useState("");
   const [newMachine, setNewMachine] = useState("");
 
-  useEffect(() => { localStorage.setItem("diagtech_clients", JSON.stringify(clients)); }, [clients]);
-  useEffect(() => { localStorage.setItem("diagtech_history", JSON.stringify(history)); }, [history]);
-  useEffect(() => { localStorage.setItem("diagtech_zones", JSON.stringify(zones)); }, [zones]);
-  useEffect(() => { localStorage.setItem("diagtech_lignes", JSON.stringify(lignes)); }, [lignes]);
-  useEffect(() => { localStorage.setItem("diagtech_machines", JSON.stringify(machines)); }, [machines]);
+  // Charger les données depuis Supabase au démarrage
+  useEffect(() => {
+    const load = async () => {
+      const { data: c } = await supabase.from("clients").select("*").order("created_at");
+      if (c) setClients(c.map(r => ({ name: r.name, address: r.address, phone: r.phone, email: r.email })));
+
+      const { data: z } = await supabase.from("zones").select("*").order("created_at");
+      if (z) setZones(z.map(r => r.name));
+
+      const { data: l } = await supabase.from("lignes").select("*").order("created_at");
+      if (l) {
+        const map = {};
+        l.forEach(r => { if (!map[r.zone_name]) map[r.zone_name] = []; map[r.zone_name].push(r.name); });
+        setLignes(map);
+      }
+
+      const { data: m } = await supabase.from("machines").select("*").order("created_at");
+      if (m) {
+        const map = {};
+        m.forEach(r => { if (!map[r.ligne_name]) map[r.ligne_name] = []; map[r.ligne_name].push(r.name); });
+        setMachines(map);
+      }
+
+      const { data: d } = await supabase.from("diagnostics").select("*").order("created_at", { ascending: false });
+      if (d) setHistory(d.map(r => ({ id: r.id, date: r.date, client: r.client, address: r.address, phone: r.phone, email: r.email, zone: r.zone, ligne: r.ligne, machine: r.machine, etatGeneral: r.etat_general, statut: r.statut, anomalies: r.anomalies, observations: r.observations, images: [] })));
+    };
+    load();
+  }, []);
   const [previewDiag, setPreviewDiag] = useState(null);
   const [saved, setSaved] = useState(false);
   const [toast, setToast] = useState(null);
@@ -183,19 +198,31 @@ export default function App() {
   const handleZoneChange = (z) => { setForm(f => ({ ...f, zone: z, ligne: "", machine: "" })); setNewLigne(""); setNewMachine(""); };
   const handleLigneChange = (l) => { setForm(f => ({ ...f, ligne: l, machine: "" })); setNewMachine(""); };
 
-  const addZone = () => {
+  const addZone = async () => {
     const z = newZone.trim();
-    if (z && !zones.includes(z)) { setZones(prev => [...prev, z]); setForm(f => ({ ...f, zone: z, ligne: "", machine: "" })); }
+    if (z && !zones.includes(z)) {
+      await supabase.from("zones").insert({ name: z });
+      setZones(prev => [...prev, z]);
+      setForm(f => ({ ...f, zone: z, ligne: "", machine: "" }));
+    }
     setNewZone("");
   };
-  const addLigne = () => {
+  const addLigne = async () => {
     const l = newLigne.trim();
-    if (l && form.zone && !(lignes[form.zone] || []).includes(l)) { setLignes(prev => ({ ...prev, [form.zone]: [...(prev[form.zone] || []), l] })); setForm(f => ({ ...f, ligne: l, machine: "" })); }
+    if (l && form.zone && !(lignes[form.zone] || []).includes(l)) {
+      await supabase.from("lignes").insert({ name: l, zone_name: form.zone });
+      setLignes(prev => ({ ...prev, [form.zone]: [...(prev[form.zone] || []), l] }));
+      setForm(f => ({ ...f, ligne: l, machine: "" }));
+    }
     setNewLigne("");
   };
-  const addMachine = () => {
+  const addMachine = async () => {
     const m = newMachine.trim();
-    if (m && form.ligne && !(machines[form.ligne] || []).includes(m)) { setMachines(prev => ({ ...prev, [form.ligne]: [...(prev[form.ligne] || []), m] })); setForm(f => ({ ...f, machine: m })); }
+    if (m && form.ligne && !(machines[form.ligne] || []).includes(m)) {
+      await supabase.from("machines").insert({ name: m, ligne_name: form.ligne });
+      setMachines(prev => ({ ...prev, [form.ligne]: [...(prev[form.ligne] || []), m] }));
+      setForm(f => ({ ...f, machine: m }));
+    }
     setNewMachine("");
   };
 
@@ -212,12 +239,25 @@ export default function App() {
 
   const removeImage = (id) => setForm(f => ({ ...f, images: f.images.filter(i => i.id !== id) }));
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const diag = { ...form, id: generateId(), date: nowStr() };
     setHistory(h => [diag, ...h]);
+
+    // Sauvegarder le client s'il est nouveau
     if (form.client && !clients.find(c => c.name === form.client)) {
-      setClients(prev => [...prev, { name: form.client, address: form.address, phone: form.phone, email: form.email }]);
+      const newClient = { name: form.client, address: form.address, phone: form.phone, email: form.email };
+      await supabase.from("clients").insert(newClient);
+      setClients(prev => [...prev, newClient]);
     }
+
+    // Sauvegarder le diagnostic
+    await supabase.from("diagnostics").insert({
+      id: diag.id, date: diag.date, client: diag.client, address: diag.address,
+      phone: diag.phone, email: diag.email, zone: diag.zone, ligne: diag.ligne,
+      machine: diag.machine, etat_general: diag.etatGeneral, statut: diag.statut,
+      anomalies: diag.anomalies, observations: diag.observations,
+    });
+
     setSaved(true);
     showToast("Diagnostic sauvegardé avec succès !");
   };
@@ -539,7 +579,7 @@ export default function App() {
               {history.map(d => (
                 <HistoryCard key={d.id} diag={d}
                   onView={(d) => { setPreviewDiag(d); setView("preview"); }}
-                  onDelete={(id) => setHistory(h => h.filter(x => x.id !== id))} />
+                  onDelete={async (id) => { await supabase.from("diagnostics").delete().eq("id", id); setHistory(h => h.filter(x => x.id !== id)); }} />
               ))}
             </>
           )}
