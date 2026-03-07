@@ -251,16 +251,29 @@ export default function App() {
 
   const removeImage = (id) => setForm(f => ({ ...f, images: f.images.filter(i => i.id !== id) }));
 
+  const base64ToBlob = (dataUrl) => {
+    const [header, base64] = dataUrl.split(",");
+    const mime = header.match(/:(.*?);/)[1];
+    const binary = atob(base64);
+    const array = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) array[i] = binary.charCodeAt(i);
+    return new Blob([array], { type: mime });
+  };
+
   const uploadImages = async (diagId, images) => {
     const uploaded = [];
     for (const img of images) {
-      const res = await fetch(img.url);
-      const blob = await res.blob();
-      const fileName = `photos/${diagId}/${img.id}.jpg`;
-      const { error } = await supabase.storage.from("rapports").upload(fileName, blob, { contentType: blob.type, upsert: true });
-      if (error) { showToast("Erreur photo : " + error.message, "error"); continue; }
-      const { data } = supabase.storage.from("rapports").getPublicUrl(fileName);
-      uploaded.push({ id: img.id, url: data.publicUrl, name: img.name });
+      try {
+        const blob = img.url.startsWith("data:") ? base64ToBlob(img.url) : await (await fetch(img.url)).blob();
+        const ext = blob.type.includes("png") ? "png" : "jpg";
+        const fileName = `photos/${diagId}/${img.id}.${ext}`;
+        const { error } = await supabase.storage.from("rapports").upload(fileName, blob, { contentType: blob.type, upsert: true });
+        if (error) { showToast("Erreur photo : " + error.message, "error"); continue; }
+        const { data } = supabase.storage.from("rapports").getPublicUrl(fileName);
+        uploaded.push({ id: img.id, url: data.publicUrl, name: img.name });
+      } catch (err) {
+        showToast("Erreur photo : " + err.message, "error");
+      }
     }
     return uploaded;
   };
