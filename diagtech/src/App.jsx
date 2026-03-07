@@ -511,7 +511,13 @@ export default function App() {
                       ← Retour
                     </button>
                   )}
-                  <button onClick={() => { setStep(s => s + 1); setSaved(false); }}
+                  <button onClick={() => {
+                      if (step === 2 && (!form.etatGeneral || !form.statut)) {
+                        showToast("Veuillez renseigner l'état général et le statut de fonctionnement", "error");
+                        return;
+                      }
+                      setStep(s => s + 1); setSaved(false);
+                    }}
                     style={{ flex: 2, padding: "14px", borderRadius: 10, border: "none", background: "#f59e0b", color: "#0f172a", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
                     Suivant →
                   </button>
