@@ -1,12 +1,9 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
-const CLIENTS = [
-  { name: "Renault Industrie", address: "12 Rue de la Manufacture, 92100 Boulogne", phone: "+33 1 42 55 88 00", email: "maintenance@renault-ind.fr" },
-  { name: "Airbus MRO", address: "5 Avenue de l'Aviation, 31700 Blagnac", phone: "+33 5 61 93 33 33", email: "technique@airbus-mro.com" },
-  { name: "Saint-Gobain Usine Nord", address: "8 Zone Industrielle, 59500 Douai", phone: "+33 3 27 88 22 11", email: "ops@sgobain-nord.fr" },
-  { name: "Michelin Clermont", address: "23 Place des Carmes, 63000 Clermont-Ferrand", phone: "+33 4 73 98 11 00", email: "quality@michelin-clm.com" },
-  { name: "Total Raffinage", address: "2 Route de la Raffinerie, 76700 Gonfreville", phone: "+33 2 35 25 75 00", email: "maint@total-raf.fr" },
-];
+function loadFromStorage(key, fallback) {
+  try { const d = localStorage.getItem(key); return d ? JSON.parse(d) : fallback; }
+  catch { return fallback; }
+}
 
 const ZONES = ["Zone A – Fonderie", "Zone B – Assemblage", "Zone C – Peinture", "Zone D – Logistique", "Zone E – Contrôle Qualité"];
 const LIGNES = { "Zone A – Fonderie": ["Ligne 1 – Coulée", "Ligne 2 – Forgeage", "Ligne 3 – Traitement thermique"], "Zone B – Assemblage": ["Ligne 4 – Pré-montage", "Ligne 5 – Montage principal", "Ligne 6 – Finition"], "Zone C – Peinture": ["Ligne 7 – Cataphorèse", "Ligne 8 – Apprêt", "Ligne 9 – Laque finale"], "Zone D – Logistique": ["Ligne 10 – Réception", "Ligne 11 – Expédition"], "Zone E – Contrôle Qualité": ["Ligne 12 – Tests fonctionnels", "Ligne 13 – Métrologie"] };
@@ -150,13 +147,15 @@ export default function App() {
   const [view, setView] = useState("form");
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(INITIAL_FORM);
-  const [history, setHistory] = useState([
-    { id: "prev001", date: "06/03/2026 09:14", client: "Renault Industrie", address: "12 Rue de la Manufacture, 92100 Boulogne", phone: "+33 1 42 55 88 00", email: "maintenance@renault-ind.fr", zone: "Zone A – Fonderie", ligne: "Ligne 1 – Coulée", machine: "Four à induction #1", etatGeneral: "moyen", statut: "En service", anomalies: "Vibrations anormales détectées sur le roulement avant gauche.", observations: "Surveiller d'ici 2 semaines, prévoir remplacement préventif.", images: [] },
-    { id: "prev002", date: "04/03/2026 14:30", client: "Michelin Clermont", address: "23 Place des Carmes, 63000 Clermont-Ferrand", phone: "+33 4 73 98 11 00", email: "quality@michelin-clm.com", zone: "Zone B – Assemblage", ligne: "Ligne 5 – Montage principal", machine: "Bras robot KUKA KR200", etatGeneral: "mauvais", statut: "Hors service", anomalies: "Axe 3 bloqué — câblage arraché côté jointe.", observations: "Arrêt immédiat requis. Pièce commandée.", images: [] },
-  ]);
+  const [clients, setClients] = useState(() => loadFromStorage("diagtech_clients", []));
+  const [history, setHistory] = useState(() => loadFromStorage("diagtech_history", []));
+
+  useEffect(() => { localStorage.setItem("diagtech_clients", JSON.stringify(clients)); }, [clients]);
+  useEffect(() => { localStorage.setItem("diagtech_history", JSON.stringify(history)); }, [history]);
   const [previewDiag, setPreviewDiag] = useState(null);
   const [saved, setSaved] = useState(false);
   const [toast, setToast] = useState(null);
+  const [manualClient, setManualClient] = useState(false);
   const fileRef = useRef();
 
   const showToast = (msg, type = "success") => {
@@ -167,7 +166,7 @@ export default function App() {
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
 
   const handleClientChange = (name) => {
-    const c = CLIENTS.find(c => c.name === name);
+    const c = clients.find(c => c.name === name);
     if (c) setForm(f => ({ ...f, client: name, address: c.address, phone: c.phone, email: c.email }));
     else setForm(f => ({ ...f, client: name, address: "", phone: "", email: "" }));
   };
@@ -191,6 +190,9 @@ export default function App() {
   const handleSave = () => {
     const diag = { ...form, id: generateId(), date: nowStr() };
     setHistory(h => [diag, ...h]);
+    if (form.client && !clients.find(c => c.name === form.client)) {
+      setClients(prev => [...prev, { name: form.client, address: form.address, phone: form.phone, email: form.email }]);
+    }
     setSaved(true);
     showToast("Diagnostic sauvegardé avec succès !");
   };
@@ -223,18 +225,47 @@ export default function App() {
   const renderStep = () => {
     if (step === 0) return (
       <div>
-        <Field label="Client" required>
-          <Select value={form.client} onChange={e => handleClientChange(e.target.value)} options={CLIENTS} placeholder="Sélectionner un client" />
-        </Field>
-        <Field label="Adresse" hint="Renseignée automatiquement">
-          <Input value={form.address} onChange={e => set("address", e.target.value)} placeholder="Adresse de l'usine" readOnly={!!CLIENTS.find(c => c.name === form.client)} />
-        </Field>
-        <Field label="Téléphone" hint="Renseigné automatiquement">
-          <Input value={form.phone} onChange={e => set("phone", e.target.value)} placeholder="+33 …" readOnly={!!CLIENTS.find(c => c.name === form.client)} />
-        </Field>
-        <Field label="Email" hint="Renseigné automatiquement">
-          <Input value={form.email} onChange={e => set("email", e.target.value)} placeholder="contact@…" readOnly={!!CLIENTS.find(c => c.name === form.client)} />
-        </Field>
+        <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+          <button onClick={() => { setManualClient(false); setForm(f => ({ ...f, client: "", address: "", phone: "", email: "" })); }}
+            style={{ flex: 1, padding: "10px", borderRadius: 8, border: `2px solid ${!manualClient ? "#f59e0b" : "#334155"}`, background: !manualClient ? "#f59e0b22" : "#1e293b", color: !manualClient ? "#f59e0b" : "#94a3b8", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            Client existant
+          </button>
+          <button onClick={() => { setManualClient(true); setForm(f => ({ ...f, client: "", address: "", phone: "", email: "" })); }}
+            style={{ flex: 1, padding: "10px", borderRadius: 8, border: `2px solid ${manualClient ? "#f59e0b" : "#334155"}`, background: manualClient ? "#f59e0b22" : "#1e293b", color: manualClient ? "#f59e0b" : "#94a3b8", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            Nouveau client
+          </button>
+        </div>
+        {!manualClient ? (
+          <>
+            <Field label="Client" required>
+              <Select value={form.client} onChange={e => handleClientChange(e.target.value)} options={clients} placeholder="Sélectionner un client" />
+            </Field>
+            <Field label="Adresse" hint="Renseignée automatiquement">
+              <Input value={form.address} onChange={e => set("address", e.target.value)} placeholder="Adresse de l'usine" readOnly={!!clients.find(c => c.name === form.client)} />
+            </Field>
+            <Field label="Téléphone" hint="Renseigné automatiquement">
+              <Input value={form.phone} onChange={e => set("phone", e.target.value)} placeholder="+33 …" readOnly={!!clients.find(c => c.name === form.client)} />
+            </Field>
+            <Field label="Email" hint="Renseigné automatiquement">
+              <Input value={form.email} onChange={e => set("email", e.target.value)} placeholder="contact@…" readOnly={!!clients.find(c => c.name === form.client)} />
+            </Field>
+          </>
+        ) : (
+          <>
+            <Field label="Nom du client" required>
+              <Input value={form.client} onChange={e => set("client", e.target.value)} placeholder="Nom de l'entreprise" />
+            </Field>
+            <Field label="Adresse" required>
+              <Input value={form.address} onChange={e => set("address", e.target.value)} placeholder="Adresse complète de l'usine" />
+            </Field>
+            <Field label="Téléphone">
+              <Input value={form.phone} onChange={e => set("phone", e.target.value)} placeholder="+33 …" />
+            </Field>
+            <Field label="Email">
+              <Input value={form.email} onChange={e => set("email", e.target.value)} placeholder="contact@entreprise.fr" />
+            </Field>
+          </>
+        )}
       </div>
     );
 
