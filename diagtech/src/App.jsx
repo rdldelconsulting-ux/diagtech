@@ -279,39 +279,42 @@ export default function App() {
   };
 
   const handleSave = async () => {
-    const diagId = generateId();
-    const diag = { ...form, id: diagId, date: nowStr() };
+    try {
+      const diagId = generateId();
+      const diag = { ...form, id: diagId, date: nowStr() };
 
-    // Sauvegarder le client s'il est nouveau
-    if (form.client && !clients.find(c => c.name === form.client)) {
-      const newClient = { name: form.client, address: form.address, phone: form.phone, email: form.email };
-      const { error } = await supabase.from("clients").insert(newClient);
-      if (error) { showToast("Erreur client : " + error.message, "error"); return; }
-      setClients(prev => [...prev, newClient]);
+      // Sauvegarder le client s'il est nouveau (ignorer l'erreur si doublon)
+      if (form.client && !clients.find(c => c.name === form.client)) {
+        const newClient = { name: form.client, address: form.address, phone: form.phone, email: form.email };
+        const { error } = await supabase.from("clients").upsert(newClient, { onConflict: "name" });
+        if (!error) setClients(prev => [...prev, newClient]);
+      }
+
+      // Upload des photos
+      let savedImages = [];
+      if (form.images.length > 0) {
+        showToast("Upload des photos...");
+        savedImages = await uploadImages(diagId, form.images);
+      }
+
+      // Sauvegarder le diagnostic
+      const { error } = await supabase.from("diagnostics").insert({
+        id: diag.id, date: diag.date, client: diag.client, address: diag.address,
+        phone: diag.phone, email: diag.email, zone: diag.zone, ligne: diag.ligne,
+        machine: diag.machine, etat_general: diag.etatGeneral, statut: diag.statut,
+        anomalies: diag.anomalies, observations: diag.observations,
+        images: savedImages,
+      });
+      if (error) { showToast("Erreur diagnostic : " + error.message, "error"); return; }
+
+      diag.images = savedImages;
+      setHistory(h => [diag, ...h]);
+      setSaved(true);
+      setEditingId(null);
+      showToast("Diagnostic sauvegardé avec succès !");
+    } catch (err) {
+      showToast("Erreur : " + err.message, "error");
     }
-
-    // Upload des photos
-    let savedImages = [];
-    if (form.images.length > 0) {
-      showToast("Upload des photos...");
-      savedImages = await uploadImages(diagId, form.images);
-    }
-
-    // Sauvegarder le diagnostic
-    const { error } = await supabase.from("diagnostics").insert({
-      id: diag.id, date: diag.date, client: diag.client, address: diag.address,
-      phone: diag.phone, email: diag.email, zone: diag.zone, ligne: diag.ligne,
-      machine: diag.machine, etat_general: diag.etatGeneral, statut: diag.statut,
-      anomalies: diag.anomalies, observations: diag.observations,
-      images: savedImages,
-    });
-    if (error) { showToast("Erreur diagnostic : " + error.message, "error"); return; }
-
-    diag.images = savedImages;
-    setHistory(h => [diag, ...h]);
-    setSaved(true);
-    setEditingId(null);
-    showToast("Diagnostic sauvegardé avec succès !");
   };
 
   const handleUpdate = async () => {
