@@ -216,7 +216,7 @@ function LoginScreen({ onLogin }) {
 // ─── STEPS / FORM ────────────────────────────────────────────────────────
 const steps = [
   { label: "Client", icon: ICONS.user },
-  { label: "Localisation", icon: ICONS.map },
+  { label: "Zone", icon: ICONS.map },
   { label: "Diagnostic", icon: ICONS.wrench },
   { label: "Photos", icon: ICONS.camera },
 ];
