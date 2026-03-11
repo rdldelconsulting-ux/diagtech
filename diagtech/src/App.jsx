@@ -540,6 +540,7 @@ export default function App() {
           {d.anomalies && <div style={{ background: "#0f172a", borderRadius: 8, padding: 12, fontSize: 12, color: "#fca5a5", marginBottom: 8 }}><strong>Anomalies :</strong> {d.anomalies}</div>}
           {d.observations && <div style={{ background: "#0f172a", borderRadius: 8, padding: 12, fontSize: 12, color: "#94a3b8" }}><strong>Observations :</strong> {d.observations}</div>}
         </div>
+        <div style={{ background: "#ef444422", borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 11, color: "#f87171" }}>DEBUG: images type={typeof d.images}, isArray={Array.isArray(d.images)}, length={d.images ? d.images.length : "null"}, raw={JSON.stringify(d.images).slice(0,100)}</div>
         {d.images && d.images.length > 0 && (
           <div style={{ background: "#1e293b", borderRadius: 14, padding: 20, marginBottom: 12 }}>
             <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: "#f59e0b", textTransform: "uppercase", marginBottom: 10 }}>Photos ({d.images.length})</div>
