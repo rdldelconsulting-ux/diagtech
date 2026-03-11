@@ -530,6 +530,18 @@ export default function App() {
           {d.anomalies && <div style={{ background: "#0f172a", borderRadius: 8, padding: 12, fontSize: 12, color: "#fca5a5", marginBottom: 8 }}><strong>Anomalies :</strong> {d.anomalies}</div>}
           {d.observations && <div style={{ background: "#0f172a", borderRadius: 8, padding: 12, fontSize: 12, color: "#94a3b8" }}><strong>Observations :</strong> {d.observations}</div>}
         </div>
+        {d.images && d.images.length > 0 && (
+          <div style={{ background: "#1e293b", borderRadius: 14, padding: 20, marginBottom: 12 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2, color: "#f59e0b", textTransform: "uppercase", marginBottom: 10 }}>Photos ({d.images.length})</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {d.images.map(img => (
+                <div key={img.id} style={{ borderRadius: 10, overflow: "hidden", border: "1px solid #334155" }}>
+                  <img src={img.url} alt={img.name} style={{ width: "100%", height: 120, objectFit: "cover", display: "block" }} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={() => handleExportPDF(d)} style={{ flex: 1, padding: "13px", borderRadius: 10, border: "none", background: "#1e3a5f", color: "#93c5fd", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}><Icon d={ICONS.pdf} size={16} color="#93c5fd" /> PDF</button>
           <button onClick={() => handleSendEmail(d)} style={{ flex: 1, padding: "13px", borderRadius: 10, border: "none", background: "#14532d", color: "#86efac", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}><Icon d={ICONS.mail} size={16} color="#86efac" /> Envoyer</button>
