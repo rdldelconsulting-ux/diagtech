@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { supabase } from "./supabase";
 
 // ─── UTILISATEURS ─────────────────────────────────────────────────────────
 const USERS = [
@@ -280,20 +281,52 @@ export default function App() {
   const [view, setView] = useState("form");
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(INITIAL_FORM);
-  const [history, setHistory] = useState([
-    { id: "prev001", date: "06/03/2026 09:14", technicien: "Jean Lefebvre", client: "Renault Industrie", address: "12 Rue de la Manufacture, 92100 Boulogne", phone: "+33 1 42 55 88 00", email: "maintenance@renault-ind.fr", zone: "Zone A – Fonderie", ligne: "Ligne 1 – Coulée", machine: "Four à induction #1", etatGeneral: "moyen", statut: "En service", anomalies: "Vibrations anormales détectées sur le roulement avant gauche.", observations: "Surveiller d'ici 2 semaines.", images: [] },
-    { id: "prev002", date: "04/03/2026 14:30", technicien: "Sara Moulin", client: "Michelin Clermont", address: "23 Place des Carmes, 63000 Clermont-Ferrand", phone: "+33 4 73 98 11 00", email: "quality@michelin-clm.com", zone: "Zone B – Assemblage", ligne: "Ligne 5 – Montage principal", machine: "Bras robot KUKA KR200", etatGeneral: "mauvais", statut: "Hors service", anomalies: "Axe 3 bloqué — câblage arraché.", observations: "Arrêt immédiat requis.", images: [] },
-  ]);
+  const [history, setHistory] = useState([]);
+  const [clients, setClients] = useState(CLIENTS);
   const [previewDiag, setPreviewDiag] = useState(null);
   const [saved, setSaved] = useState(false);
   const [toast, setToast] = useState(null);
   const fileRef = useRef();
 
+  // ── CHARGEMENT DEPUIS SUPABASE ──────────────────────────────────────────
+  useEffect(() => {
+    const loadData = async () => {
+      // Charger les clients
+      const { data: dbClients } = await supabase.from("clients").select("*");
+      if (dbClients && dbClients.length > 0) {
+        setClients(dbClients);
+      }
+      // Charger les diagnostics
+      const { data: dbDiags } = await supabase.from("diagnostics").select("*").order("date", { ascending: false });
+      if (dbDiags) {
+        setHistory(dbDiags.map(d => ({
+          id: d.id,
+          date: d.date,
+          technicien: d.technicien || "",
+          client: d.client,
+          address: d.address,
+          phone: d.phone,
+          email: d.email,
+          zone: d.zone,
+          ligne: d.ligne,
+          machine: d.machine,
+          etatGeneral: d.etat_general,
+          statut: d.statut,
+          anomalies: d.anomalies,
+          observations: d.observations,
+          images: d.images || [],
+          modified_at: d.modified_at,
+        })));
+      }
+    };
+    loadData();
+  }, []);
+
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }));
 
   const handleClientChange = (name) => {
-    const c = CLIENTS.find(c => c.name === name);
+    const c = clients.find(c => c.name === name);
     if (c) setForm(f => ({ ...f, client: name, address: c.address, phone: c.phone, email: c.email }));
     else setForm(f => ({ ...f, client: name, address: "", phone: "", email: "" }));
   };
@@ -309,11 +342,72 @@ export default function App() {
     });
   };
 
-  const handleSave = () => {
-    const diag = { ...form, id: generateId(), date: nowStr(), technicien: currentUser.name };
-    setHistory(h => [diag, ...h]);
-    setSaved(true);
-    showToast("Diagnostic sauvegardé !");
+  // ── UPLOAD IMAGES VERS SUPABASE STORAGE ─────────────────────────────────
+  function base64ToBlob(dataUrl) {
+    const [header, base64] = dataUrl.split(",");
+    const mime = header.match(/:(.*?);/)[1];
+    const bytes = atob(base64);
+    const arr = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  }
+
+  const uploadImages = async (images) => {
+    const uploaded = [];
+    for (const img of images) {
+      if (img.url && img.url.startsWith("http")) {
+        uploaded.push(img);
+        continue;
+      }
+      const fileName = `${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+      const blob = base64ToBlob(img.url);
+      const { error } = await supabase.storage.from("rapports").upload(fileName, blob, { upsert: true });
+      if (!error) {
+        const { data: urlData } = supabase.storage.from("rapports").getPublicUrl(fileName);
+        uploaded.push({ ...img, url: urlData.publicUrl });
+      }
+    }
+    return uploaded;
+  };
+
+  const handleSave = async () => {
+    try {
+      // Upload images
+      const uploadedImages = await uploadImages(form.images);
+
+      // Upsert client
+      await supabase.from("clients").upsert({ name: form.client, address: form.address, phone: form.phone, email: form.email }, { onConflict: "name" });
+
+      // Insert diagnostic
+      const diagId = generateId();
+      const diagDate = nowStr();
+      const { error } = await supabase.from("diagnostics").insert({
+        id: diagId,
+        date: diagDate,
+        technicien: currentUser.name,
+        client: form.client,
+        address: form.address,
+        phone: form.phone,
+        email: form.email,
+        zone: form.zone,
+        ligne: form.ligne,
+        machine: form.machine,
+        etat_general: form.etatGeneral,
+        statut: form.statut,
+        anomalies: form.anomalies,
+        observations: form.observations,
+        images: uploadedImages,
+      });
+
+      if (error) throw error;
+
+      const diag = { ...form, id: diagId, date: diagDate, technicien: currentUser.name, images: uploadedImages };
+      setHistory(h => [diag, ...h]);
+      setSaved(true);
+      showToast("Diagnostic sauvegarde !");
+    } catch (err) {
+      showToast("Erreur : " + err.message);
+    }
   };
 
   const handleExportPDF = (diag) => {
@@ -340,10 +434,10 @@ export default function App() {
   const renderStep = () => {
     if (step === 0) return (
       <div>
-        <Field label="Client" required><Select value={form.client} onChange={e => handleClientChange(e.target.value)} options={CLIENTS} placeholder="Sélectionner un client" /></Field>
-        <Field label="Adresse" hint="Renseignée automatiquement"><Input value={form.address} onChange={e => set("address", e.target.value)} placeholder="Adresse" readOnly={!!CLIENTS.find(c => c.name === form.client)} /></Field>
-        <Field label="Téléphone" hint="Renseigné automatiquement"><Input value={form.phone} onChange={e => set("phone", e.target.value)} placeholder="+33 …" readOnly={!!CLIENTS.find(c => c.name === form.client)} /></Field>
-        <Field label="Email" hint="Renseigné automatiquement"><Input value={form.email} onChange={e => set("email", e.target.value)} placeholder="contact@…" readOnly={!!CLIENTS.find(c => c.name === form.client)} /></Field>
+        <Field label="Client" required><Select value={form.client} onChange={e => handleClientChange(e.target.value)} options={clients} placeholder="Sélectionner un client" /></Field>
+        <Field label="Adresse" hint="Renseignée automatiquement"><Input value={form.address} onChange={e => set("address", e.target.value)} placeholder="Adresse" readOnly={!!clients.find(c => c.name === form.client)} /></Field>
+        <Field label="Téléphone" hint="Renseigné automatiquement"><Input value={form.phone} onChange={e => set("phone", e.target.value)} placeholder="+33 …" readOnly={!!clients.find(c => c.name === form.client)} /></Field>
+        <Field label="Email" hint="Renseigné automatiquement"><Input value={form.email} onChange={e => set("email", e.target.value)} placeholder="contact@…" readOnly={!!clients.find(c => c.name === form.client)} /></Field>
       </div>
     );
     if (step === 1) return (
@@ -494,7 +588,7 @@ export default function App() {
             <>
               <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>{history.length} rapport{history.length > 1 ? "s" : ""}</div>
               {history.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#475569" }}>Aucun diagnostic enregistré</div>}
-              {history.map(d => <HistoryCard key={d.id} diag={d} onView={(d) => { setPreviewDiag(d); setView("preview"); }} onDelete={(id) => setHistory(h => h.filter(x => x.id !== id))} />)}
+              {history.map(d => <HistoryCard key={d.id} diag={d} onView={(d) => { setPreviewDiag(d); setView("preview"); }} onDelete={async (id) => { await supabase.from("diagnostics").delete().eq("id", id); setHistory(h => h.filter(x => x.id !== id)); }} />)}
             </>
           )}
           {view === "preview" && renderPreview()}
@@ -502,7 +596,9 @@ export default function App() {
 
         {/* NAV BAS */}
         <div style={{ background: "#0f172a", borderTop: "1px solid #1e293b", display: "flex", position: "sticky", bottom: 0 }}>
-          {navBtn(ICONS.factory, "Nouveau", "form")}
+          <button onClick={() => { setView("form"); setStep(0); setForm(INITIAL_FORM); setSaved(false); setPreviewDiag(null); }} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, padding: "10px 4px", border: "none", background: "transparent", color: view === "form" ? "#f59e0b" : "#475569", cursor: "pointer", fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase" }}>
+            <Icon d={ICONS.factory} size={20} color={view === "form" ? "#f59e0b" : "#475569"} />Nouveau
+          </button>
           {navBtn(ICONS.history, "Historique", "history")}
         </div>
 
