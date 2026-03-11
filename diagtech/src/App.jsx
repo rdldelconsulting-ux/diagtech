@@ -249,6 +249,16 @@ const HistoryCard = ({ diag, onView, onDelete }) => (
     <div style={{ color: "#94a3b8", fontSize: 12, marginBottom: 10 }}>
       {[diag.zone, diag.ligne, diag.machine].filter(Boolean).join(" › ")}
     </div>
+    {diag.images && diag.images.length > 0 && (
+      <div style={{ display: "flex", gap: 6, marginBottom: 10, overflowX: "auto" }}>
+        {diag.images.slice(0, 4).map(img => (
+          <img key={img.id} src={img.url} alt={img.name} style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, border: "1px solid #334155" }} />
+        ))}
+        {diag.images.length > 4 && (
+          <div style={{ width: 60, height: 60, borderRadius: 8, background: "#0f172a", border: "1px solid #334155", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#94a3b8", fontWeight: 700 }}>+{diag.images.length - 4}</div>
+        )}
+      </div>
+    )}
     <div style={{ display: "flex", gap: 8 }}>
       <button onClick={() => onView(diag)} style={{ flex: 1, padding: "8px", borderRadius: 8, border: "1px solid #334155", background: "transparent", color: "#94a3b8", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
         <Icon d={ICONS.eye} size={14} /> Voir
