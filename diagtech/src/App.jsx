@@ -282,7 +282,7 @@ export default function App() {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(INITIAL_FORM);
   const [history, setHistory] = useState([]);
-  const [clients, setClients] = useState(CLIENTS);
+  const [clients, setClients] = useState([]);
   const [previewDiag, setPreviewDiag] = useState(null);
   const [saved, setSaved] = useState(false);
   const [toast, setToast] = useState(null);
@@ -297,7 +297,7 @@ export default function App() {
         setClients(dbClients);
       }
       // Charger les diagnostics
-      const { data: dbDiags } = await supabase.from("diagnostics").select("*").order("date", { ascending: false });
+      const { data: dbDiags } = await supabase.from("diagnostics").select("*").order("created_at", { ascending: false });
       if (dbDiags) {
         setHistory(dbDiags.map(d => ({
           id: d.id,
