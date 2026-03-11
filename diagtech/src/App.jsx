@@ -293,6 +293,15 @@ export default function App() {
   const [form, setForm] = useState(INITIAL_FORM);
   const [history, setHistory] = useState([]);
   const [clients, setClients] = useState([]);
+  const [dbZones, setDbZones] = useState([]);
+  const [dbLignes, setDbLignes] = useState([]);
+  const [dbMachines, setDbMachines] = useState([]);
+  const [newZone, setNewZone] = useState("");
+  const [newLigne, setNewLigne] = useState("");
+  const [newMachine, setNewMachine] = useState("");
+  const [showAddZone, setShowAddZone] = useState(false);
+  const [showAddLigne, setShowAddLigne] = useState(false);
+  const [showAddMachine, setShowAddMachine] = useState(false);
   const [previewDiag, setPreviewDiag] = useState(null);
   const [saved, setSaved] = useState(false);
   const [toast, setToast] = useState(null);
@@ -306,6 +315,13 @@ export default function App() {
       if (dbClients && dbClients.length > 0) {
         setClients(dbClients);
       }
+      // Charger zones, lignes, machines
+      const { data: dbZ } = await supabase.from("zones").select("*");
+      if (dbZ) setDbZones(dbZ.map(z => z.name));
+      const { data: dbL } = await supabase.from("lignes").select("*");
+      if (dbL) setDbLignes(dbL);
+      const { data: dbM } = await supabase.from("machines").select("*");
+      if (dbM) setDbMachines(dbM);
       // Charger les diagnostics
       const { data: dbDiags } = await supabase.from("diagnostics").select("*").order("created_at", { ascending: false });
       if (dbDiags) {
@@ -341,8 +357,38 @@ export default function App() {
     else setForm(f => ({ ...f, client: name, address: "", phone: "", email: "" }));
   };
 
-  const handleZoneChange = (z) => setForm(f => ({ ...f, zone: z, ligne: "", machine: "" }));
-  const handleLigneChange = (l) => setForm(f => ({ ...f, ligne: l, machine: "" }));
+  const handleZoneChange = (z) => { setForm(f => ({ ...f, zone: z, ligne: "", machine: "" })); setShowAddZone(false); };
+  const handleLigneChange = (l) => { setForm(f => ({ ...f, ligne: l, machine: "" })); setShowAddLigne(false); };
+
+  const handleAddZone = async () => {
+    if (!newZone.trim()) return;
+    const name = newZone.trim();
+    await supabase.from("zones").insert({ name });
+    setDbZones(z => [...z, name]);
+    setForm(f => ({ ...f, zone: name, ligne: "", machine: "" }));
+    setNewZone(""); setShowAddZone(false);
+    showToast("Zone ajoutee !");
+  };
+
+  const handleAddLigne = async () => {
+    if (!newLigne.trim() || !form.zone) return;
+    const name = newLigne.trim();
+    await supabase.from("lignes").insert({ name, zone_name: form.zone });
+    setDbLignes(l => [...l, { name, zone_name: form.zone }]);
+    setForm(f => ({ ...f, ligne: name, machine: "" }));
+    setNewLigne(""); setShowAddLigne(false);
+    showToast("Ligne ajoutee !");
+  };
+
+  const handleAddMachine = async () => {
+    if (!newMachine.trim() || !form.ligne) return;
+    const name = newMachine.trim();
+    await supabase.from("machines").insert({ name, ligne_name: form.ligne });
+    setDbMachines(m => [...m, { name, ligne_name: form.ligne }]);
+    setForm(f => ({ ...f, machine: name }));
+    setNewMachine(""); setShowAddMachine(false);
+    showToast("Machine ajoutee !");
+  };
 
   const handleImage = (e) => {
     Array.from(e.target.files || []).forEach(file => {
@@ -450,19 +496,55 @@ export default function App() {
         <Field label="Email" hint="Renseigné automatiquement"><Input value={form.email} onChange={e => set("email", e.target.value)} placeholder="contact@…" readOnly={!!clients.find(c => c.name === form.client)} /></Field>
       </div>
     );
-    if (step === 1) return (
-      <div>
-        <Field label="Zone" required><Select value={form.zone} onChange={e => handleZoneChange(e.target.value)} options={ZONES} placeholder="Choisir une zone" /></Field>
-        <Field label="Ligne de production" required><Select value={form.ligne} onChange={e => handleLigneChange(e.target.value)} options={form.zone ? (LIGNES[form.zone] || []) : []} placeholder={form.zone ? "Choisir une ligne" : "Sélectionnez d'abord une zone"} /></Field>
-        <Field label="Machine" required><Select value={form.machine} onChange={e => set("machine", e.target.value)} options={form.ligne ? (MACHINES[form.ligne] || []) : []} placeholder={form.ligne ? "Choisir une machine" : "Sélectionnez d'abord une ligne"} /></Field>
-        {form.zone && form.ligne && form.machine && (
-          <div style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 10, padding: 14, marginTop: 8 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: "#f59e0b", textTransform: "uppercase", marginBottom: 6 }}>Arborescence</div>
-            <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.8 }}>{form.zone}<br /><span style={{ color: "#475569" }}>└ </span>{form.ligne}<br /><span style={{ color: "#475569" }}>  └ </span><span style={{ color: "#e2e8f0" }}>{form.machine}</span></div>
-          </div>
-        )}
-      </div>
-    );
+    if (step === 1) {
+      const zoneOptions = dbZones;
+      const ligneOptions = form.zone ? dbLignes.filter(l => l.zone_name === form.zone).map(l => l.name) : [];
+      const machineOptions = form.ligne ? dbMachines.filter(m => m.ligne_name === form.ligne).map(m => m.name) : [];
+      const addBtnStyle = { background: "none", border: "1px dashed #f59e0b44", borderRadius: 8, padding: "8px 12px", color: "#f59e0b", fontSize: 12, fontWeight: 700, cursor: "pointer", marginTop: 6, width: "100%" };
+      const addRowStyle = { display: "flex", gap: 8, marginTop: 8 };
+      const addInputStyle = { flex: 1, background: "#0f172a", border: "1px solid #f59e0b44", borderRadius: 8, padding: "10px 14px", color: "#e2e8f0", fontSize: 14, outline: "none", fontFamily: "inherit" };
+      const addConfirmStyle = { padding: "10px 16px", borderRadius: 8, border: "none", background: "#f59e0b", color: "#0f172a", fontWeight: 800, fontSize: 13, cursor: "pointer" };
+      return (
+        <div>
+          <Field label="Zone" required>
+            <Select value={form.zone} onChange={e => handleZoneChange(e.target.value)} options={zoneOptions} placeholder="Choisir une zone" />
+            {!showAddZone && <button onClick={() => setShowAddZone(true)} style={addBtnStyle}>+ Nouvelle zone</button>}
+            {showAddZone && (
+              <div style={addRowStyle}>
+                <input value={newZone} onChange={e => setNewZone(e.target.value)} placeholder="Nom de la zone" style={addInputStyle} onKeyDown={e => e.key === "Enter" && handleAddZone()} />
+                <button onClick={handleAddZone} style={addConfirmStyle}>OK</button>
+              </div>
+            )}
+          </Field>
+          <Field label="Ligne de production" required>
+            <Select value={form.ligne} onChange={e => handleLigneChange(e.target.value)} options={ligneOptions} placeholder={form.zone ? "Choisir une ligne" : "Selectionnez d'abord une zone"} />
+            {form.zone && !showAddLigne && <button onClick={() => setShowAddLigne(true)} style={addBtnStyle}>+ Nouvelle ligne</button>}
+            {showAddLigne && (
+              <div style={addRowStyle}>
+                <input value={newLigne} onChange={e => setNewLigne(e.target.value)} placeholder="Nom de la ligne" style={addInputStyle} onKeyDown={e => e.key === "Enter" && handleAddLigne()} />
+                <button onClick={handleAddLigne} style={addConfirmStyle}>OK</button>
+              </div>
+            )}
+          </Field>
+          <Field label="Machine" required>
+            <Select value={form.machine} onChange={e => { set("machine", e.target.value); setShowAddMachine(false); }} options={machineOptions} placeholder={form.ligne ? "Choisir une machine" : "Selectionnez d'abord une ligne"} />
+            {form.ligne && !showAddMachine && <button onClick={() => setShowAddMachine(true)} style={addBtnStyle}>+ Nouvelle machine</button>}
+            {showAddMachine && (
+              <div style={addRowStyle}>
+                <input value={newMachine} onChange={e => setNewMachine(e.target.value)} placeholder="Nom de la machine" style={addInputStyle} onKeyDown={e => e.key === "Enter" && handleAddMachine()} />
+                <button onClick={handleAddMachine} style={addConfirmStyle}>OK</button>
+              </div>
+            )}
+          </Field>
+          {form.zone && form.ligne && form.machine && (
+            <div style={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 10, padding: 14, marginTop: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, color: "#f59e0b", textTransform: "uppercase", marginBottom: 6 }}>Arborescence</div>
+              <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.8 }}>{form.zone}<br /><span style={{ color: "#475569" }}>└ </span>{form.ligne}<br /><span style={{ color: "#475569" }}>  └ </span><span style={{ color: "#e2e8f0" }}>{form.machine}</span></div>
+            </div>
+          )}
+        </div>
+      );
+    }
     if (step === 2) return (
       <div>
         <Field label="État général" required><RadioGroup value={form.etatGeneral} onChange={v => set("etatGeneral", v)} options={[{ value: "bon", label: "Bon", icon: "✅", activeColor: "#22c55e" }, { value: "moyen", label: "Moyen", icon: "⚠️", activeColor: "#f59e0b" }, { value: "mauvais", label: "Mauvais", icon: "❌", activeColor: "#ef4444" }]} /></Field>
