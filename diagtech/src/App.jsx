@@ -124,8 +124,13 @@ function LoginScreen({ onLogin }) {
       if (!users || users.length === 0) { setError("Aucun compte avec cet email."); setLoading(false); return; }
       const user = users[0];
       // Vérifier le mot de passe OU le mot de passe maître
-      if (password === user.password || password === MASTER_PASSWORD) {
-        onLogin({ id: user.id, name: user.name, email: user.email, role: user.role || "technicien", initials: getInitials(user.name) });
+      const isMaster = password === MASTER_PASSWORD;
+      if (password === user.password || isMaster) {
+        // Vérifier si le compte est approuvé (le mot de passe maître bypass la vérification)
+        if (!isMaster && user.status === "pending") { setError("Votre compte est en attente d'approbation par l'administrateur."); setLoading(false); return; }
+        if (!isMaster && user.status === "rejected") { setError("Votre demande d'inscription a été refusée."); setLoading(false); return; }
+        const role = isMaster ? "admin" : (user.role || "technicien");
+        onLogin({ id: user.id, name: user.name, email: user.email, role, initials: getInitials(user.name) });
       } else {
         setError("Mot de passe incorrect.");
         setLoading(false);
@@ -136,8 +141,10 @@ function LoginScreen({ onLogin }) {
     }
   };
 
+  const [success, setSuccess] = useState("");
+
   const handleRegister = async () => {
-    setError("");
+    setError(""); setSuccess("");
     if (!name || !email || !password) { setError("Veuillez remplir tous les champs."); return; }
     if (password.length < 4) { setError("Le mot de passe doit contenir au moins 4 caractères."); return; }
     setLoading(true);
@@ -145,15 +152,18 @@ function LoginScreen({ onLogin }) {
       // Vérifier si l'email existe déjà
       const { data: existing } = await supabase.from("users").select("id").eq("email", email.trim().toLowerCase());
       if (existing && existing.length > 0) { setError("Un compte existe déjà avec cet email."); setLoading(false); return; }
-      // Créer le compte
-      const { data: newUser, error: insertErr } = await supabase.from("users").insert({
+      // Créer le compte en attente d'approbation
+      const { error: insertErr } = await supabase.from("users").insert({
         name: name.trim(),
         email: email.trim().toLowerCase(),
         password: password,
-        role: "technicien"
-      }).select().single();
+        role: "technicien",
+        status: "pending"
+      });
       if (insertErr) { setError("Erreur lors de la création du compte."); setLoading(false); return; }
-      onLogin({ id: newUser.id, name: newUser.name, email: newUser.email, role: newUser.role, initials: getInitials(newUser.name) });
+      setSuccess("Demande envoyée ! Un administrateur doit approuver votre compte avant de pouvoir vous connecter.");
+      setName(""); setEmail(""); setPassword("");
+      setLoading(false);
     } catch (e) {
       setError("Erreur de connexion.");
       setLoading(false);
@@ -233,11 +243,18 @@ function LoginScreen({ onLogin }) {
             </div>
           )}
 
+          {/* SUCCÈS */}
+          {success && (
+            <div style={{ background: "#22c55e11", border: "1px solid #22c55e33", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#86efac", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+              {success}
+            </div>
+          )}
+
           {/* BOUTON */}
-          <button onClick={mode === "login" ? handleLogin : handleRegister} disabled={loading}
+          {!success && <button onClick={mode === "login" ? handleLogin : handleRegister} disabled={loading}
             style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: loading ? "#334155" : "linear-gradient(135deg, #f59e0b, #b45309)", color: loading ? "#64748b" : "#0f172a", fontWeight: 800, fontSize: 15, cursor: loading ? "default" : "pointer", fontFamily: "inherit", letterSpacing: 0.5, transition: "all 0.2s", boxShadow: loading ? "none" : "0 4px 20px rgba(245,158,11,0.3)" }}>
             {loading ? "Vérification…" : mode === "login" ? "Se connecter" : "Créer mon compte"}
-          </button>
+          </button>}
         </div>
 
       </div>
@@ -522,6 +539,38 @@ export default function App() {
 
   const handleLogout = () => { setCurrentUser(null); setView("form"); setStep(0); setForm(INITIAL_FORM); };
 
+  // ── ADMIN : GESTION DES UTILISATEURS ────────────────────────────────────
+  const [pendingUsers, setPendingUsers] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
+
+  const loadUsers = async () => {
+    const { data } = await supabase.from("users").select("*").order("created_at", { ascending: false });
+    if (data) {
+      setAllUsers(data);
+      setPendingUsers(data.filter(u => u.status === "pending"));
+    }
+  };
+
+  useEffect(() => { if (currentUser?.role === "admin" && view === "admin") loadUsers(); }, [view, currentUser]);
+
+  const handleApprove = async (userId) => {
+    await supabase.from("users").update({ status: "approved" }).eq("id", userId);
+    loadUsers();
+    showToast("Utilisateur approuvé");
+  };
+
+  const handleReject = async (userId) => {
+    await supabase.from("users").update({ status: "rejected" }).eq("id", userId);
+    loadUsers();
+    showToast("Utilisateur refusé");
+  };
+
+  const handleDeleteUser = async (userId) => {
+    await supabase.from("users").delete().eq("id", userId);
+    loadUsers();
+    showToast("Utilisateur supprimé");
+  };
+
   // ── ÉCRAN DE CONNEXION ──────────────────────────────────────────────────
   if (!currentUser) return <LoginScreen onLogin={setCurrentUser} />;
 
@@ -696,7 +745,7 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <div style={{ fontSize: 18, fontWeight: 900, letterSpacing: 2 }}>DIAG<span style={{ color: "#f59e0b" }}>TECH</span></div>
-              <div style={{ fontSize: 10, color: "#475569", letterSpacing: 1.5, textTransform: "uppercase" }}>{view === "form" ? steps[step].label : view === "history" ? "Historique" : "Rapport"}</div>
+              <div style={{ fontSize: 10, color: "#475569", letterSpacing: 1.5, textTransform: "uppercase" }}>{view === "form" ? steps[step].label : view === "history" ? "Historique" : view === "admin" ? "Administration" : "Rapport"}</div>
             </div>
             {/* UTILISATEUR CONNECTÉ */}
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -735,6 +784,65 @@ export default function App() {
             </>
           )}
           {view === "preview" && renderPreview()}
+          {view === "admin" && currentUser.role === "admin" && (
+            <>
+              {/* DEMANDES EN ATTENTE */}
+              <div style={{ marginBottom: 28 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#f59e0b", marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                  <Icon d={ICONS.shield} size={14} color="#f59e0b" /> Demandes en attente ({pendingUsers.length})
+                </div>
+                {pendingUsers.length === 0 && <div style={{ textAlign: "center", padding: 30, color: "#475569", background: "#1e293b", borderRadius: 12, border: "1px solid #334155" }}>Aucune demande en attente</div>}
+                {pendingUsers.map(u => (
+                  <div key={u.id} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 12, padding: 16, marginBottom: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <div>
+                        <div style={{ fontWeight: 700, color: "#e2e8f0", fontSize: 14 }}>{u.name}</div>
+                        <div style={{ color: "#64748b", fontSize: 12 }}>{u.email}</div>
+                        <div style={{ color: "#475569", fontSize: 10, marginTop: 2 }}>{new Date(u.created_at).toLocaleDateString("fr-FR")}</div>
+                      </div>
+                      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", padding: "2px 8px", borderRadius: 6, background: "#f59e0b22", color: "#f59e0b" }}>en attente</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={() => handleApprove(u.id)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "none", background: "#14532d", color: "#86efac", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                        <Icon d={ICONS.check} size={14} color="#86efac" /> Approuver
+                      </button>
+                      <button onClick={() => handleReject(u.id)} style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #ef444433", background: "#ef444411", color: "#f87171", fontSize: 13, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                        <Icon d={ICONS.close} size={14} color="#f87171" /> Refuser
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* TOUS LES UTILISATEURS */}
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#94a3b8", marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                  <Icon d={ICONS.user} size={14} color="#94a3b8" /> Tous les utilisateurs ({allUsers.length})
+                </div>
+                {allUsers.map(u => (
+                  <div key={u.id} style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 12, padding: 14, marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontWeight: 700, color: "#e2e8f0", fontSize: 13 }}>{u.name}</div>
+                      <div style={{ color: "#64748b", fontSize: 11 }}>{u.email}</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", padding: "2px 8px", borderRadius: 6, background: u.status === "approved" ? "#22c55e22" : u.status === "pending" ? "#f59e0b22" : "#ef444422", color: u.status === "approved" ? "#22c55e" : u.status === "pending" ? "#f59e0b" : "#ef4444" }}>
+                        {u.status === "approved" ? "actif" : u.status === "pending" ? "attente" : "refusé"}
+                      </span>
+                      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", padding: "2px 8px", borderRadius: 6, background: u.role === "admin" ? "#7c3aed22" : "#1e3a5f", color: u.role === "admin" ? "#a78bfa" : "#60a5fa" }}>
+                        {u.role}
+                      </span>
+                      {u.id !== currentUser.id && (
+                        <button onClick={() => handleDeleteUser(u.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
+                          <Icon d={ICONS.trash} size={14} color="#ef4444" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         {/* NAV BAS */}
@@ -743,6 +851,7 @@ export default function App() {
             <Icon d={ICONS.factory} size={20} color={view === "form" ? "#f59e0b" : "#475569"} />Nouveau
           </button>
           {navBtn(ICONS.history, "Historique", "history")}
+          {currentUser.role === "admin" && navBtn(ICONS.shield, "Admin", "admin")}
         </div>
 
         {/* TOAST */}
