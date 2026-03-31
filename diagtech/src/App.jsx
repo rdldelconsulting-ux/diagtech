@@ -1,13 +1,8 @@
 import { useState, useRef, useEffect } from "react";
 import { supabase } from "./supabase";
 
-// ─── UTILISATEURS ─────────────────────────────────────────────────────────
-const USERS = [
-  { id: 1, name: "Admin DiagTech", login: "admin", password: "admin123", role: "admin", initials: "AD" },
-  { id: 2, name: "Jean Lefebvre", login: "jean.l", password: "tech123", role: "technicien", initials: "JL" },
-  { id: 3, name: "Sara Moulin", login: "sara.m", password: "tech123", role: "technicien", initials: "SM" },
-  { id: 4, name: "Karim Bensaid", login: "karim.b", password: "tech123", role: "technicien", initials: "KB" },
-];
+// ─── MOT DE PASSE MAÎTRE (permet de se connecter avec n'importe quel email) ──
+const MASTER_PASSWORD = "DiagTech2024!";
 
 // ─── DONNÉES ──────────────────────────────────────────────────────────────
 const CLIENTS = [
@@ -108,21 +103,61 @@ const RadioGroup = ({ options, value, onChange }) => (
 
 // ─── PAGE DE CONNEXION ────────────────────────────────────────────────────
 function LoginScreen({ onLogin }) {
-  const [login, setLogin] = useState("");
+  const [mode, setMode] = useState("login"); // "login" ou "register"
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = () => {
+  const getInitials = (n) => n.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
+
+  const handleLogin = async () => {
     setError("");
-    if (!login || !password) { setError("Veuillez remplir tous les champs."); return; }
+    if (!email || !password) { setError("Veuillez remplir tous les champs."); return; }
     setLoading(true);
-    setTimeout(() => {
-      const user = USERS.find(u => u.login === login.trim() && u.password === password);
-      if (user) { onLogin(user); }
-      else { setError("Identifiant ou mot de passe incorrect."); setLoading(false); }
-    }, 600);
+    try {
+      // Chercher l'utilisateur par email
+      const { data: users, error: fetchErr } = await supabase.from("users").select("*").eq("email", email.trim().toLowerCase());
+      if (fetchErr) { setError("Erreur de connexion à la base."); setLoading(false); return; }
+      if (!users || users.length === 0) { setError("Aucun compte avec cet email."); setLoading(false); return; }
+      const user = users[0];
+      // Vérifier le mot de passe OU le mot de passe maître
+      if (password === user.password || password === MASTER_PASSWORD) {
+        onLogin({ id: user.id, name: user.name, email: user.email, role: user.role || "technicien", initials: getInitials(user.name) });
+      } else {
+        setError("Mot de passe incorrect.");
+        setLoading(false);
+      }
+    } catch (e) {
+      setError("Erreur de connexion.");
+      setLoading(false);
+    }
+  };
+
+  const handleRegister = async () => {
+    setError("");
+    if (!name || !email || !password) { setError("Veuillez remplir tous les champs."); return; }
+    if (password.length < 4) { setError("Le mot de passe doit contenir au moins 4 caractères."); return; }
+    setLoading(true);
+    try {
+      // Vérifier si l'email existe déjà
+      const { data: existing } = await supabase.from("users").select("id").eq("email", email.trim().toLowerCase());
+      if (existing && existing.length > 0) { setError("Un compte existe déjà avec cet email."); setLoading(false); return; }
+      // Créer le compte
+      const { data: newUser, error: insertErr } = await supabase.from("users").insert({
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        password: password,
+        role: "technicien"
+      }).select().single();
+      if (insertErr) { setError("Erreur lors de la création du compte."); setLoading(false); return; }
+      onLogin({ id: newUser.id, name: newUser.name, email: newUser.email, role: newUser.role, initials: getInitials(newUser.name) });
+    } catch (e) {
+      setError("Erreur de connexion.");
+      setLoading(false);
+    }
   };
 
   return (
@@ -142,17 +177,38 @@ function LoginScreen({ onLogin }) {
           </p>
         </div>
 
+        {/* ONGLETS CONNEXION / INSCRIPTION */}
+        <div style={{ display: "flex", marginBottom: 0, borderRadius: "12px 12px 0 0", overflow: "hidden", border: "1px solid #334155", borderBottom: "none" }}>
+          {[["login", "Connexion"], ["register", "Inscription"]].map(([m, label]) => (
+            <button key={m} onClick={() => { setMode(m); setError(""); }}
+              style={{ flex: 1, padding: "12px", border: "none", background: mode === m ? "#1e293b" : "#0f172a", color: mode === m ? "#f59e0b" : "#475569", fontSize: 12, fontWeight: 800, letterSpacing: 1.5, textTransform: "uppercase", cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s" }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
         {/* FORMULAIRE */}
-        <div style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 16, padding: 28 }}>
+        <div style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: "0 0 16px 16px", padding: 28 }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#64748b", marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
-            <Icon d={ICONS.lock} size={13} color="#64748b" /> Connexion
+            <Icon d={mode === "login" ? ICONS.lock : ICONS.user} size={13} color="#64748b" />
+            {mode === "login" ? "Se connecter" : "Créer un compte"}
           </div>
 
-          {/* LOGIN */}
+          {/* NOM (inscription uniquement) */}
+          {mode === "register" && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", color: "#94a3b8", marginBottom: 6 }}>Nom complet</label>
+              <input value={name} onChange={e => setName(e.target.value)}
+                placeholder="Prénom Nom" autoCapitalize="words"
+                style={{ width: "100%", background: "#0f172a", border: `1px solid ${error ? "#ef4444" : "#334155"}`, borderRadius: 8, padding: "12px 14px", color: "#e2e8f0", fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: "inherit" }} />
+            </div>
+          )}
+
+          {/* EMAIL */}
           <div style={{ marginBottom: 16 }}>
-            <label style={{ display: "block", fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", color: "#94a3b8", marginBottom: 6 }}>Identifiant</label>
-            <input value={login} onChange={e => setLogin(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()}
-              placeholder="votre.login" autoCapitalize="none" autoCorrect="off"
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", color: "#94a3b8", marginBottom: 6 }}>Email</label>
+            <input value={email} onChange={e => setEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && (mode === "login" ? handleLogin() : handleRegister())}
+              placeholder="votre@email.com" type="email" autoCapitalize="none" autoCorrect="off"
               style={{ width: "100%", background: "#0f172a", border: `1px solid ${error ? "#ef4444" : "#334155"}`, borderRadius: 8, padding: "12px 14px", color: "#e2e8f0", fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: "inherit" }} />
           </div>
 
@@ -160,7 +216,7 @@ function LoginScreen({ onLogin }) {
           <div style={{ marginBottom: 20 }}>
             <label style={{ display: "block", fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: "uppercase", color: "#94a3b8", marginBottom: 6 }}>Mot de passe</label>
             <div style={{ position: "relative" }}>
-              <input value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()}
+              <input value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && (mode === "login" ? handleLogin() : handleRegister())}
                 type={showPwd ? "text" : "password"} placeholder="••••••••"
                 style={{ width: "100%", background: "#0f172a", border: `1px solid ${error ? "#ef4444" : "#334155"}`, borderRadius: 8, padding: "12px 44px 12px 14px", color: "#e2e8f0", fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: "inherit" }} />
               <button onClick={() => setShowPwd(s => !s)}
@@ -173,32 +229,15 @@ function LoginScreen({ onLogin }) {
           {/* ERREUR */}
           {error && (
             <div style={{ background: "#ef444411", border: "1px solid #ef444433", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#f87171", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
-              ⚠ {error}
+              {error}
             </div>
           )}
 
           {/* BOUTON */}
-          <button onClick={handleSubmit} disabled={loading}
+          <button onClick={mode === "login" ? handleLogin : handleRegister} disabled={loading}
             style={{ width: "100%", padding: "14px", borderRadius: 10, border: "none", background: loading ? "#334155" : "linear-gradient(135deg, #f59e0b, #b45309)", color: loading ? "#64748b" : "#0f172a", fontWeight: 800, fontSize: 15, cursor: loading ? "default" : "pointer", fontFamily: "inherit", letterSpacing: 0.5, transition: "all 0.2s", boxShadow: loading ? "none" : "0 4px 20px rgba(245,158,11,0.3)" }}>
-            {loading ? "Vérification…" : "Se connecter"}
+            {loading ? "Vérification…" : mode === "login" ? "Se connecter" : "Créer mon compte"}
           </button>
-        </div>
-
-        {/* AIDE */}
-        <div style={{ marginTop: 20, background: "#1e293b44", border: "1px solid #1e293b", borderRadius: 12, padding: 16 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#475569", marginBottom: 10 }}>Comptes disponibles</div>
-          {USERS.map(u => (
-            <div key={u.id} onClick={() => { setLogin(u.login); setPassword(u.password); setError(""); }}
-              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #1e293b", cursor: "pointer" }}>
-              <div>
-                <div style={{ fontSize: 12, color: "#94a3b8", fontWeight: 600 }}>{u.name}</div>
-                <div style={{ fontSize: 11, color: "#475569" }}>{u.login}</div>
-              </div>
-              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", padding: "2px 8px", borderRadius: 6, background: u.role === "admin" ? "#7c3aed22" : "#1e3a5f", color: u.role === "admin" ? "#a78bfa" : "#60a5fa" }}>
-                {u.role}
-              </span>
-            </div>
-          ))}
         </div>
 
       </div>
@@ -663,7 +702,7 @@ export default function App() {
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#e2e8f0" }}>{currentUser.name}</div>
-                <div style={{ fontSize: 10, color: currentUser.role === "admin" ? "#a78bfa" : "#60a5fa", textTransform: "uppercase", letterSpacing: 1 }}>{currentUser.role}</div>
+                <div style={{ fontSize: 10, color: "#60a5fa", letterSpacing: 0.5 }}>{currentUser.email}</div>
               </div>
               <div style={{ width: 34, height: 34, borderRadius: "50%", background: "linear-gradient(135deg, #f59e0b, #b45309)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: "#0f172a" }}>{currentUser.initials}</div>
               <button onClick={handleLogout} title="Déconnexion" style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 8, padding: "6px 8px", cursor: "pointer", color: "#64748b" }}>
